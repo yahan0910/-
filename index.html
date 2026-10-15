@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日式無印風 - 地點搜尋與距離計算</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #F7F5F0; /* 溫潤米白無印風 */
+            color: #4A453E;
+        }
+        .muji-card {
+            background-color: #FFFFFF;
+            border: 1px solid #E6E2D8;
+            border-radius: 8px;
+        }
+        .muji-btn {
+            background-color: #78716C;
+            color: #FFFFFF;
+            transition: background-color 0.2s;
+        }
+        .muji-btn:hover {
+            background-color: #57534E;
+        }
+        .muji-input {
+            border: 1px solid #D6D0C4;
+            background-color: #FAFAF9;
+        }
+        .muji-input:focus {
+            outline: none;
+            border-color: #78716C;
+        }
+        #map {
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="min-h-screen py-8 px-4 sm:px-6">
+    <div class="max-w-4xl mx-auto">
+        <!-- 標題區 -->
+        <header class="text-center mb-8">
+            <h1 class="text-2xl sm:text-3xl font-medium tracking-wide text-[#57534E] mb-2">地點搜尋與路線距離計算</h1>
+            <p class="text-sm text-[#8C857B]">簡約、直覺的地點管理與即時總距離測算</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+            <!-- 左側：搜尋與清單管理 (7欄) -->
+            <div class="md:col-span-7 space-y-6">
+                <!-- 搜尋與範例區 -->
+                <div class="muji-card p-5 shadow-sm space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-[#57534E] mb-1">搜尋地點名稱</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="searchInput" placeholder="例如：文化中心、台北101、駁二" 
+                                class="flex-1 px-3 py-2 rounded muji-input text-sm">
+                            <button onclick="searchLocation()" class="muji-btn px-4 py-2 rounded text-sm font-medium">搜尋</button>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2 pt-2 border-t border-[#E6E2D8]">
+                        <button onclick="loadSampleRoute()" class="text-xs bg-[#EFECE6] text-[#686054] hover:bg-[#E2DDD5] px-3 py-1.5 rounded transition">
+                            📦 載入高雄範例路線
+                        </button>
+                        <button onclick="clearAllLocations()" class="text-xs bg-red-50 text-red-700 hover:bg-red-100 px-3 py-1.5 rounded transition ml-auto">
+                            🗑️ 清空全部
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 地點清單區 -->
+                <div class="muji-card p-5 shadow-sm">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-sm font-medium text-[#57534E]">地點清單 (<span id="locationCount">0</span>)</h2>
+                        <span class="text-xs text-[#8C857B]">點擊地圖可直接新增</span>
+                    </div>
+                    <div id="locationList" class="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        <!-- 動態生成清單 -->
+                        <div class="text-center py-8 text-xs text-[#A8A29E]">目前尚無地點，請透過上方搜尋或點擊地圖新增</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右側：地圖與總距離計算 (5欄) -->
+            <div class="md:col-span-5 space-y-6 flex flex-col">
+                <!-- 互動地圖 -->
+                <div class="muji-card p-2 shadow-sm flex-1">
+                    <div id="map" class="w-full h-72 md:h-80 rounded"></div>
+                </div>
+
+                <!-- 總距離計算結果面板 -->
+                <div class="muji-card p-5 shadow-sm bg-[#FAF8F5]">
+                    <div class="flex justify-between items-baseline mb-3">
+                        <span class="text-xs font-medium text-[#78716C] tracking-wider uppercase">加總總距離</span>
+                        <!-- 單位切換 -->
+                        <div class="inline-flex rounded border border-[#D6D0C4] bg-white p-0.5 text-xs">
+                            <button onclick="setUnit('km')" id="btn-km" class="px-2.5 py-1 rounded bg-[#78716C] text-white transition">km</button>
+                            <button onclick="setUnit('m')" id="btn-m" class="px-2.5 py-1 rounded text-[#78716C] transition">m</button>
+                            <button onclick="setUnit('mi')" id="btn-mi" class="px-2.5 py-1 rounded text-[#78716C] transition">mi</button>
+                        </div>
+                    </div>
+                    <div class="text-3xl font-light text-[#4A453E] tracking-tight">
+                        <span id="totalDistance">0.00</span> <span id="distanceUnit" class="text-sm font-normal text-[#8C857B]">km</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 邏輯 -->
+    <script>
+        let locations = [];
+        let currentUnit = 'km'; // km, m, mi
+        let map, markersLayer, polylineLayer;
+
+        // 初始化地圖 (預設高雄市中心)
+        function initMap() {
+            map = L.map('map').setView([22.6273, 120.3014], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            markersLayer = L.layerGroup().addTo(map);
+            polylineLayer = L.layerGroup().addTo(map);
+
+            // 點擊地圖新增地點 (Reverse Geocoding)
+            map.on('click', async function(e) {
+                const { lat, lng } = e.latlng;
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=zh-TW`);
+                    const data = await res.json();
+                    let name = data.display_name ? data.display_name.split(',')[0] : `自訂地點 (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+                    addLocation(name, lat, lng);
+                } catch (err) {
+                    addLocation(`自訂地點 (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng);
+                }
+            });
+        }
+
+        // 搜尋地點 (Nominatim API)
+        async function searchLocation() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    const item = data[0];
+                    const name = item.display_name.split(',')[0];
+                    const lat = parseFloat(item.lat);
+                    const lon = parseFloat(item.lon);
+                    addLocation(name, lat, lon);
+                    document.getElementById('searchInput').value = '';
+                } else {
+                    alert('找不到此地點，請嘗試其他關鍵字');
+                }
+            } catch (err) {
+                alert('搜尋發生錯誤，請稍後再試');
+            }
+        }
+
+        // 新增地點
+        function addLocation(name, lat, lng) {
+            locations.push({ name, lat, lng });
+            updateUI();
+        }
+
+        // 刪除單一點位
+        function removeLocation(index) {
+            locations.splice(index, 1);
+            updateUI();
+        }
+
+        // 上移
+        function moveUp(index) {
+            if (index > 0) {
+                const temp = locations[index];
+                locations[index] = locations[index - 1];
+                locations[index - 1] = temp;
+                updateUI();
+            }
+        }
+
+        // 下移
+        function moveDown(index) {
+            if (index < locations.length - 1) {
+                const temp = locations[index];
+                locations[index] = locations[index + 1];
+                locations[index + 1] = temp;
+                updateUI();
+            }
+        }
+
+        // 清空全部
+        function clearAllLocations() {
+            locations = [];
+            updateUI();
+        }
+
+        // 載入範例路線
+        function loadSampleRoute() {
+            locations = [
+                { name: "高雄文化中心", lat: 22.6231, lng: 120.3153 },
+                { name: "高雄市立圖書館總館", lat: 22.6073, lng: 120.3023 },
+                { name: "駁二藝術特區", lat: 22.6191, lng: 120.2818 }
+            ];
+            updateUI();
+        }
+
+        // 計算兩點間距離 (Haversine formula) in km
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Earth radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // 切換單位
+        function setUnit(unit) {
+            currentUnit = unit;
+            ['km', 'm', 'mi'].forEach(u => {
+                const btn = document.getElementById(`btn-${u}`);
+                if (u === unit) {
+                    btn.className = "px-2.5 py-1 rounded bg-[#78716C] text-white transition";
+                } else {
+                    btn.className = "px-2.5 py-1 rounded text-[#78716C] transition";
+                }
+            });
+            updateTotalDistanceDisplay();
+        }
+
+        // 更新總距離顯示
+        function updateTotalDistanceDisplay() {
+            let totalKm = 0;
+            for (let i = 0; i < locations.length - 1; i++) {
+                totalKm += calculateDistance(locations[i].lat, locations[i].lng, locations[i+1].lat, locations[i+1].lng);
+            }
+
+            let displayVal = totalKm;
+            let unitText = 'km';
+
+            if (currentUnit === 'm') {
+                displayVal = totalKm * 1000;
+                unitText = 'm';
+            } else if (currentUnit === 'mi') {
+                displayVal = totalKm * 0.621371;
+                unitText = 'mi';
+            }
+
+            document.getElementById('totalDistance').innerText = displayVal.toFixed(2);
+            document.getElementById('distanceUnit').innerText = unitText;
+        }
+
+        // 更新介面與圖資
+        function updateUI() {
+            // 更新清單數量
+            document.getElementById('locationCount').innerText = locations.length;
+
+            // 渲染清單 HTML
+            const listEl = document.getElementById('locationList');
+            if (locations.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-8 text-xs text-[#A8A29E]">目前尚無地點，請透過上方搜尋或點擊地圖新增</div>`;
+            } else {
+                let html = '';
+                locations.forEach((loc, index) => {
+                    html += `
+                        <div class="flex items-center justify-between p-2.5 bg-[#F9F8F6] rounded border border-[#EBE7DF] text-sm">
+                            <div class="flex items-center gap-2.5 overflow-hidden">
+                                <span class="w-5 h-5 flex items-center justify-center bg-[#E2DDD5] text-[#57534E] text-xs rounded-full font-medium shrink-0">${index + 1}</span>
+                                <span class="truncate text-[#4A453E]" title="${loc.name}">${loc.name}</span>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="moveUp(${index})" ${index === 0 ? 'disabled class="opacity-30 cursor-not-allowed"' : ''} class="p-1 text-[#78716C] hover:bg-[#EAE5DE] rounded" title="上移">⬆️</button>
+                                <button onclick="moveDown(${index})" ${index === locations.length - 1 ? 'disabled class="opacity-30 cursor-not-allowed"' : ''} class="p-1 text-[#78716C] hover:bg-[#EAE5DE] rounded" title="下移">⬇️</button>
+                                <button onclick="removeLocation(${index})" class="p-1 text-red-600 hover:bg-red-50 rounded ml-1" title="刪除">✕</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                listEl.innerHTML = html;
+            }
+
+            // 更新地圖標記與連線
+            markersLayer.clearLayers();
+            polylineLayer.clearLayers();
+
+            const latlngs = [];
+            locations.forEach((loc, index) => {
+                latlngs.push([loc.lat, loc.lng]);
+                L.marker([loc.lat, loc.lng])
+                  .addTo(markersLayer)
+                  .bindPopup(`<b>${index + 1}. ${loc.name}</b>`);
+            });
+
+            if (latlngs.length > 1) {
+                L.polyline(latlngs, { color: '#78716C', weight: 3, opacity: 0.8, dashArray: '5, 5' }).addTo(polylineLayer);
+                map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [50, 50] });
+            } else if (latlngs.length === 1) {
+                map.setView(latlngs[0], 14);
+            }
+
+            updateTotalDistanceDisplay();
+        }
+
+        // 初始化執行
+        window.onload = initMap;
+    </script>
+</body>
+</html>
