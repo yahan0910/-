@@ -48,7 +48,7 @@
         <!-- 標題區 -->
         <header class="text-center mb-8">
             <h1 class="text-2xl sm:text-3xl font-medium tracking-wide text-[#57534E] mb-2">地點搜尋與路線距離計算</h1>
-            <p class="text-sm text-[#8C857B]">簡約、直覺的地點管理與即時總距離測算</p>
+            <p class="text-sm text-[#8C857B]">簡約、直覺的地點管理與即時總距離測算（Google 智慧搜尋）</p>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -59,8 +59,8 @@
                     <div>
                         <label class="block text-sm font-medium text-[#57534E] mb-1">搜尋地點名稱</label>
                         <div class="flex gap-2">
-                            <input type="text" id="searchInput" placeholder="例如：文化中心、台北101、駁二" 
-                                class="flex-1 px-3 py-2 rounded muji-input text-sm">
+                            <input type="text" id="searchInput" placeholder="例如：高雄市四維長青學苑、駁二" 
+                                class="flex-1 px-3 py-2 rounded muji-input text-sm" onkeypress="if(event.key === 'Enter') searchLocation()">
                             <button onclick="searchLocation()" class="muji-btn px-4 py-2 rounded text-sm font-medium">搜尋</button>
                         </div>
                     </div>
@@ -115,6 +115,7 @@
 
     <!-- JavaScript 邏輯 -->
     <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyXugqwhMLjHhoDta3aYNPyOJts326MuGg96lmyhfYPh4yzCnLkdqtURFHXXvj8HkeK/exec";
         let locations = [];
         let currentUnit = 'km'; // km, m, mi
         let map, markersLayer, polylineLayer;
@@ -129,34 +130,34 @@
             markersLayer = L.layerGroup().addTo(map);
             polylineLayer = L.layerGroup().addTo(map);
 
-            // 點擊地圖新增地點 (Reverse Geocoding)
+            // 點擊地圖新增地點 (透過 GAS 進行反向地址解析)
             map.on('click', async function(e) {
                 const { lat, lng } = e.latlng;
                 try {
-                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=zh-TW`);
-                    const data = await res.json();
-                    let name = data.display_name ? data.display_name.split(',')[0] : `自訂地點 (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
-                    addLocation(name, lat, lng);
+                    const res = await fetch(`${GAS_URL}?action=reverse&lat=${lat}&lng=${lng}`);
+                    const result = await res.json();
+                    if (result.status === "success" && result.data) {
+                        addLocation(result.data.name, result.data.lat, result.data.lng);
+                    } else {
+                        addLocation(`自訂地點 (${lat.toFixed(3)},${lng.toFixed(3)})`, lat, lng);
+                    }
                 } catch (err) {
-                    addLocation(`自訂地點 (${lat.toFixed(3)}, ${lng.toFixed(3)})`, lat, lng);
+                    addLocation(`自訂地點 (${lat.toFixed(3)},${lng.toFixed(3)})`, lat, lng);
                 }
             });
         }
 
-        // 搜尋地點 (Nominatim API)
+        // 搜尋地點 (透過 GAS 進行 Google 智慧搜尋)
         async function searchLocation() {
             const query = document.getElementById('searchInput').value.trim();
             if (!query) return;
 
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
-                const data = await res.json();
-                if (data && data.length > 0) {
-                    const item = data[0];
-                    const name = item.display_name.split(',')[0];
-                    const lat = parseFloat(item.lat);
-                    const lon = parseFloat(item.lon);
-                    addLocation(name, lat, lon);
+                const res = await fetch(`${GAS_URL}?action=search&q=${encodeURIComponent(query)}`);
+                const result = await res.json();
+                if (result.status === "success" && result.data) {
+                    const item = result.data;
+                    addLocation(item.name, item.lat, item.lng);
                     document.getElementById('searchInput').value = '';
                 } else {
                     alert('找不到此地點，請嘗試其他關鍵字');
@@ -207,7 +208,7 @@
         // 載入範例路線
         function loadSampleRoute() {
             locations = [
-                { name: "高雄文化中心", lat: 22.6231, lng: 120.3153 },
+                { name: "高雄市四維長青學苑", lat: 22.6225, lng: 120.3115 },
                 { name: "高雄市立圖書館總館", lat: 22.6073, lng: 120.3023 },
                 { name: "駁二藝術特區", lat: 22.6191, lng: 120.2818 }
             ];
@@ -284,38 +285,4 @@
                             <div class="flex items-center gap-1 shrink-0">
                                 <button onclick="moveUp(${index})" ${index === 0 ? 'disabled class="opacity-30 cursor-not-allowed"' : ''} class="p-1 text-[#78716C] hover:bg-[#EAE5DE] rounded" title="上移">⬆️</button>
                                 <button onclick="moveDown(${index})" ${index === locations.length - 1 ? 'disabled class="opacity-30 cursor-not-allowed"' : ''} class="p-1 text-[#78716C] hover:bg-[#EAE5DE] rounded" title="下移">⬇️</button>
-                                <button onclick="removeLocation(${index})" class="p-1 text-red-600 hover:bg-red-50 rounded ml-1" title="刪除">✕</button>
-                            </div>
-                        </div>
-                    `;
-                });
-                listEl.innerHTML = html;
-            }
-
-            // 更新地圖標記與連線
-            markersLayer.clearLayers();
-            polylineLayer.clearLayers();
-
-            const latlngs = [];
-            locations.forEach((loc, index) => {
-                latlngs.push([loc.lat, loc.lng]);
-                L.marker([loc.lat, loc.lng])
-                  .addTo(markersLayer)
-                  .bindPopup(`<b>${index + 1}. ${loc.name}</b>`);
-            });
-
-            if (latlngs.length > 1) {
-                L.polyline(latlngs, { color: '#78716C', weight: 3, opacity: 0.8, dashArray: '5, 5' }).addTo(polylineLayer);
-                map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [50, 50] });
-            } else if (latlngs.length === 1) {
-                map.setView(latlngs[0], 14);
-            }
-
-            updateTotalDistanceDisplay();
-        }
-
-        // 初始化執行
-        window.onload = initMap;
-    </script>
-</body>
-</html>
+                                <button onclick="removeLocation(${index})" class="p-1 text-red-600 hover:bg-red-50
